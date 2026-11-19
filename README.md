@@ -39,8 +39,6 @@ claude plugin install step-flow --marketplace joshyeom/step-flow
 
 In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `joshyeom/step-flow`, then Add plugin.
 
-The pane docks beside the chat in the fullscreen terminal layout. step-flow turns on fullscreen in `~/.claude/settings.json` when `tui` is unset (from the next session).
-
 ## Usage
 
 - Run `/flow` to open the pane.
@@ -97,9 +95,30 @@ For a decision step, the detail view shows the issue, each option with what it m
 - `/flow-theme`: pick one of six themes (or `/flow-theme 1` to `/flow-theme 7`)
 - `/flow-clear`: clear the recorded steps and the pane question
 
+## Pane position
+
+- Claude Code, not step-flow, decides where the pane goes.
+  - In the fullscreen layout on a terminal 110 columns or wider, it docks on the right of the chat.
+  - Otherwise it sits above the prompt, at the bottom of the screen.
+- So when `~/.claude/settings.json` has no `tui` value, step-flow writes `"tui": "fullscreen"` there and shows a notice.
+  - From the next session the pane docks on the right.
+  - If you set `tui` yourself, step-flow leaves it alone.
+- To switch in the current session, run `/tui fullscreen`.
+
+## Step recording reminder
+
+- Each time you send a message, step-flow attaches a hidden reminder that tells Claude to record each step as it finishes.
+  - It is not shown in the chat; only Claude reads it.
+- It does not go in the system prompt because of machines with organization managed settings.
+  - On such machines Claude Code's security plugin `cc-plugin-sec-default` skips user plugins' system prompt hooks (`prompt.compose`, `prompt.context`, `prompt.section`, `prompt.attachment`) and the settings read hook (`settings.read`).
+  - Up to 0.3.0 the reminder never reached Claude there, so long runs missed steps.
+  - If the chat kept showing "its prompt.compose hook was skipped", this was the case.
+
 ## Language
 
-The pane follows the `language` setting (Korean or English).
+- The pane follows the `language` setting (Korean or English). Without it, it checks the `LANG` and `LC_ALL` environment variables.
+- If the language was not set at session start, the pane reads it from the settings when it first draws.
+  - Up to 0.3.0 it was set only at session start, and some sessions showed English despite a Korean setting.
 
 ## Cost
 
@@ -110,3 +129,4 @@ Each question in the pane sends up to the last 120,000 characters of the session
 - Arrow keys do not scroll the pane.
 - Home and End do not reach the very top or bottom.
 - Steps are kept for the current session only.
+- The cause of the English pane in 0.3.0 was not reproduced. If 0.4.0 still shows English, please open an issue.

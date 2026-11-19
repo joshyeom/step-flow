@@ -39,8 +39,6 @@ claude plugin install step-flow --marketplace joshyeom/step-flow
 
 `/plugin`이 실행되지 않는 데스크톱 앱에서는 프롬프트 입력란 옆의 +를 누르고 Plugins, Add marketplace를 차례로 선택합니다. 마켓플레이스에는 `joshyeom/step-flow`를 입력하고 Add plugin을 누릅니다.
 
-전체 화면 터미널 레이아웃에서는 패널이 채팅 옆에 표시됩니다. `tui`가 설정되어 있지 않으면 step-flow가 `~/.claude/settings.json`에 fullscreen을 켭니다(다음 세션부터 적용).
-
 ## 사용법
 
 - `/flow`를 실행하면 패널이 열립니다.
@@ -97,9 +95,30 @@ claude plugin install step-flow --marketplace joshyeom/step-flow
 - `/flow-theme`: 테마 6가지 중 하나를 고릅니다(`/flow-theme 1`부터 `/flow-theme 7`까지 번호로 지정할 수도 있습니다)
 - `/flow-clear`: 기록된 단계와 패널의 질문을 지웁니다
 
+## 패널 위치
+
+- 패널을 어디에 둘지는 step-flow가 아니라 Claude Code가 정합니다.
+  - fullscreen 레이아웃이고 터미널 폭이 110칸 이상이면 채팅 오른쪽에 붙습니다.
+  - 그 밖에는 프롬프트 위(화면 아래쪽)에 붙습니다.
+- 그래서 step-flow는 `~/.claude/settings.json`에 `tui` 값이 없으면 `"tui": "fullscreen"`을 써 넣고 알림을 띄웁니다.
+  - 다음 세션부터 패널이 오른쪽에 붙습니다.
+  - `tui`를 직접 정해 둔 경우에는 설정을 바꾸지 않습니다.
+- 지금 세션에서 바로 바꾸려면 `/tui fullscreen`을 실행합니다.
+
+## 단계 기록 안내
+
+- step-flow는 사용자가 메시지를 보낼 때마다 "단계가 끝날 때마다 기록하라"는 안내를 보이지 않는 컨텍스트로 붙입니다.
+  - 채팅에는 보이지 않고 Claude만 읽습니다.
+- 시스템 프롬프트에 안내를 넣지 않는 이유는 회사 관리 설정(managed settings)이 있는 컴퓨터 때문입니다.
+  - 이런 컴퓨터에서는 Claude Code의 보안 플러그인 `cc-plugin-sec-default`가 사용자 플러그인의 시스템 프롬프트 훅(`prompt.compose`, `prompt.context`, `prompt.section`, `prompt.attachment`)과 설정 읽기 훅(`settings.read`)을 건너뜁니다.
+  - 0.3.0까지는 안내가 Claude에게 전달되지 않아, 긴 작업에서 단계 기록이 빠졌습니다.
+  - 채팅에 "its prompt.compose hook was skipped" 알림이 반복해서 찍혔다면 이 경우입니다.
+
 ## 언어
 
-패널은 `language` 설정(한국어 또는 영어)을 따릅니다.
+- 패널은 `language` 설정(한국어 또는 영어)을 따릅니다. 설정이 없으면 `LANG`, `LC_ALL` 환경 변수를 봅니다.
+- 세션을 시작할 때 언어를 정하지 못했어도, 패널을 처음 그릴 때 설정에서 다시 읽습니다.
+  - 0.3.0까지는 세션 시작 때만 정해서, 한국어 설정인데도 패널이 영어로 나온 세션이 있었습니다.
 
 ## 비용
 
@@ -110,3 +129,4 @@ claude plugin install step-flow --marketplace joshyeom/step-flow
 - 방향키로는 패널이 스크롤되지 않습니다.
 - Home과 End 키로는 맨 위나 맨 아래까지 가지 않습니다.
 - 단계는 현재 세션에서만 보관됩니다.
+- 0.3.0에서 패널이 영어로 나온 원인은 재현하지 못했습니다. 0.4.0에서도 영어로 나오면 이슈로 알려 주세요.

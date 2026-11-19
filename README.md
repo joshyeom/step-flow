@@ -1,3 +1,5 @@
+<img src=".claude-plugin/icon.png" alt="step-flow logo" width="96">
+
 # step-flow
 
 **English** | [한국어](README.ko.md)

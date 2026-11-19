@@ -50,7 +50,6 @@ declare module 'claude-code' {
       theme: number
       selected: string
       btw: BtwEntry[]
-      locale: string
       btwInput: number
       rowBg: string
       themePicker: boolean

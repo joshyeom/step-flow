@@ -39,7 +39,7 @@ claude plugin install step-flow --marketplace joshyeom/step-flow
 
 `/plugin`이 실행되지 않는 데스크톱 앱에서는 프롬프트 입력란 옆의 +를 누르고 Plugins, Add marketplace를 차례로 선택합니다. 마켓플레이스에는 `joshyeom/step-flow`를 입력하고 Add plugin을 누릅니다.
 
-전체 화면 터미널 레이아웃에서는 패널이 채팅 옆에 표시됩니다.
+전체 화면 터미널 레이아웃에서는 패널이 채팅 옆에 표시됩니다. `tui`가 설정되어 있지 않으면 step-flow가 `~/.claude/settings.json`에 fullscreen을 켭니다(다음 세션부터 적용).
 
 ## 사용법
 

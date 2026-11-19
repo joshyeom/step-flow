@@ -612,19 +612,62 @@ test('a rejected or unanswered model call shows the failure line', async ($, on)
   await ui.unmount()
 })
 
-test('prompt.compose appends the step-flow:reminder section last', async ($, on) => {
-  on('prompt.compose', () => ({ sections: [{ id: 'base', text: 'x', scope: 'shared' }] }))
+test('prompt.submit adds the reminder to context for a prompt, keeping what is there, and not for a command', async ($, on) => {
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text, context: e.context }))
   await setup($, on)
-  const r = await $.prompt.compose({
-    model: 'm', promptModel: 'm', surfaces: [], tools: [], outputStyle: null, traits: [],
+  const r = await $.prompt.submit({ text: 'hi', context: ['keep'] })
+  expect(r.context?.[0]).toBe('keep')
+  const last = r.context?.[r.context.length - 1]
+  expect(last).toContain('mcp__step-flow__resolve')
+  expect(last).toContain('choice 0')
+  expect(last).toContain('starting with "결정 (", "Decision (", "진행 (" or "Go ahead ("')
+  const cmd = { name: 'flow', args: '' }
+  const c = await $.prompt.submit({ text: '/flow', command: cmd, context: ['keep'] })
+  expect(c.context).toEqual(['keep'])
+})
+
+// Runs session.start with HOME set and ~/.claude/settings.json holding `file` (null = missing); returns what was
+// written there and the toasts shown.
+const fullscreenRun = async ($: any, on: any, file: string | null, lang = '한국어') => {
+  const written: string[] = []
+  const toasts: string[] = []
+  on('fs.exists', () => ({ value: file !== null }))
+  on('fs.read', () => ({ value: file ?? '' }))
+  on('fs.write', (_: any, e: any) => {
+    written.push(e.path, e.text)
+
+    return { value: undefined }
   })
-  const last = r.sections[r.sections.length - 1]
-  expect(last?.id).toBe('step-flow:reminder')
-  expect(last?.scope).toBe('session')
-  expect(last?.text).toContain('blocked')
-  expect(last?.text).toContain('mcp__step-flow__resolve')
-  expect(last?.text).toContain('choice 0')
-  expect(last?.text).toContain('starting with "결정 (", "Decision (", "진행 (" or "Go ahead ("')
+  on('ui.toast', (_: any, e: any) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  await setup($, on, {}, lang, { HOME: '/h' })
+
+  return { written, toasts }
+}
+
+test('session.start turns on the fullscreen layout when tui is unset, and says so', async ($, on) => {
+  const { written, toasts } = await fullscreenRun($, on, '{"model":"opus"}')
+  expect(written).toEqual(['/h/.claude/settings.json', '{\n  "model": "opus",\n  "tui": "fullscreen"\n}\n'])
+  expect(toasts).toEqual(['패널을 오른쪽에 두기 위해 fullscreen 화면을 켰습니다. 다음 세션부터 적용됩니다.'])
+})
+
+test('session.start creates settings.json with tui fullscreen when it is missing', async ($, on) => {
+  const { written, toasts } = await fullscreenRun($, on, null, 'English')
+  expect(written).toEqual(['/h/.claude/settings.json', '{\n  "tui": "fullscreen"\n}\n'])
+  expect(toasts).toEqual(['Turned on the fullscreen layout so the pane docks on the right. Takes effect from the next session.'])
+})
+
+test('session.start leaves an existing tui value untouched', async ($, on) => {
+  expect((await fullscreenRun($, on, '{"tui":"default"}')).written).toEqual([])
+})
+
+test('session.start leaves a settings file that does not parse untouched', async ($, on) => {
+  const { written, toasts } = await fullscreenRun($, on, '{ nope')
+  expect(written).toEqual([])
+  expect(toasts).toEqual([])
 })
 
 const lastLoc = ($: any) => $.command.run({ command: 'flow', args: '' })

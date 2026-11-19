@@ -39,7 +39,7 @@ claude plugin install step-flow --marketplace joshyeom/step-flow
 
 In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `joshyeom/step-flow`, then Add plugin.
 
-The pane docks beside the chat in the fullscreen terminal layout.
+The pane docks beside the chat in the fullscreen terminal layout. step-flow turns on fullscreen in `~/.claude/settings.json` when `tui` is unset (from the next session).
 
 ## Usage
 

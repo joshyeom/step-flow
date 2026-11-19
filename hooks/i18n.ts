@@ -52,6 +52,7 @@ export type Strings = {
   flowThemeDesc: string
   flowOpened: string
   flowCleared: string
+  fullscreenOn: string
   themeSet: (n: number, name: string) => string
   themePickerOpened: string
   themePickerTitle: string
@@ -116,6 +117,7 @@ const ko: Strings = {
   flowThemeDesc: '작업 흐름 패널 모양 바꾸기',
   flowOpened: '작업 흐름 패널을 열었습니다.',
   flowCleared: '작업 흐름 기록을 지웠습니다.',
+  fullscreenOn: '패널을 오른쪽에 두기 위해 fullscreen 화면을 켰습니다. 다음 세션부터 적용됩니다.',
   themeSet: (n, name) => `테마를 ${n}번(${name})으로 바꿨습니다.`,
   themePickerOpened: '테마 목록을 패널에 띄웠습니다.',
   themePickerTitle: '테마 고르기',
@@ -175,6 +177,7 @@ const en: Strings = {
   flowThemeDesc: 'Change the look of the work flow panel',
   flowOpened: 'Opened the work flow panel.',
   flowCleared: 'Cleared the work flow record.',
+  fullscreenOn: 'Turned on the fullscreen layout so the pane docks on the right. Takes effect from the next session.',
   themeSet: (n, name) => `Theme set to ${n} (${name}).`,
   themePickerOpened: 'Theme list is open in the pane.',
   themePickerTitle: 'Choose a theme',

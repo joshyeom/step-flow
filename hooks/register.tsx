@@ -31,7 +31,6 @@ const nodes = atom({ plugin: 'step-flow', key: 'nodes' } as const, [], {
 const theme = atom({ plugin: 'step-flow', key: 'theme' } as const, 7)
 const selected = atom({ plugin: 'step-flow', key: 'selected' } as const, '')
 const btw = atom({ plugin: 'step-flow', key: 'btw' } as const, [])
-const locale = atom({ plugin: 'step-flow', key: 'locale' } as const, 'en')
 // Bumped on every btw submit: a new Input key draws a fresh, empty field.
 const btwInput = atom({ plugin: 'step-flow', key: 'btwInput' } as const, 0)
 // Background of the question row, picked from the `theme` setting at session start.
@@ -375,17 +374,43 @@ const windowStart = (w: ViewWindow, l: ReturnType<typeof layoutOf>) => {
   return l.snapUp(Math.min(Math.max(w.offset, 0), l.max))
 }
 
+// The language, resolved on first use (session.start refreshes it) so a session where that hook did not run
+// still shows the user's language.
+let cachedLocale: string | undefined
+const localeOf = async ($: any, fresh = false) => {
+  if (fresh || !cachedLocale)
+    cachedLocale = toLocale(
+      str(await $.settings.read({ key: 'language' })) ||
+        (await $.env.get('LANG')) ||
+        (await $.env.get('LC_ALL')),
+    )
+
+  return cachedLocale
+}
+
+// Turn on the fullscreen layout, where the pane docks on the right, unless the user's own settings
+// already name a `tui` value or cannot be parsed. Takes effect from the next session.
+const fullscreenByDefault = async ($: any, t: Strings) => {
+  try {
+    const home = await $.env.get('HOME')
+    if (!home) return
+    const path = `${home}/.claude/settings.json`
+    const obj = (await $.fs.exists(path)) ? JSON.parse(await $.fs.read(path)) : {}
+    if (typeof obj !== 'object' || obj === null || Array.isArray(obj) || 'tui' in obj) return
+    await $.fs.write(path, JSON.stringify({ ...obj, tui: 'fullscreen' }, null, 2) + '\n')
+    $.ui.toast(t.fullscreenOn)
+  } catch {
+    // Never break session.start.
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    const lang =
-      str(await $.settings.read({ key: 'language' })) ||
-      (await $.env.get('LANG')) ||
-      (await $.env.get('LC_ALL'))
-    const loc = toLocale(lang)
-    await update($, locale, () => loc)
+    const loc = await localeOf($, true)
     const bg = str(await $.settings.read({ key: 'theme' })).includes('light') ? '#f0f0f0' : '#3a3a3a'
     await update($, rowBg, () => bg)
     const t = tr(loc)
+    await fullscreenByDefault($, t)
     await $.tool.register({
       name: 'step',
       description: DESCRIPTION,
@@ -492,20 +517,11 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('prompt.compose', async (_$, e, next) => {
-    const r = await next(e)
-
-    return {
-      ...r,
-      sections: [
-        ...r.sections,
-        { id: 'step-flow:reminder', text: REMINDER, scope: 'session' as const },
-      ],
-    }
-  })
+  // prompt.compose is bypassed on managed machines, so the reminder rides each typed prompt as hidden context.
+  on('prompt.submit', ($, e, next) => next(e.command ? e : { ...e, context: [...(e.context ?? []), REMINDER] }))
 
   on('command.run', { command: 'flow' }, async $ => {
-    const t = tr(await read($, locale))
+    const t = tr(await localeOf($))
     await $.ui.open({ id: PANE, title: t.paneTitle })
 
     return { text: t.flowOpened }
@@ -518,11 +534,11 @@ export const register: Register = on => {
     // An answer about cleared steps must not stay on screen.
     await update($, btw, l => l.map(x => ({ ...x, closed: true as const })))
 
-    return { text: tr(await read($, locale)).flowCleared }
+    return { text: tr(await localeOf($)).flowCleared }
   })
 
   on('command.run', { command: 'flow-theme' }, async ($, e) => {
-    const t = tr(await read($, locale))
+    const t = tr(await localeOf($))
     const n = Number(e.args.trim())
     if (THEME_IDS.includes(n)) {
       await $.store.set('theme', n)
@@ -786,7 +802,7 @@ export const register: Register = on => {
     const list = (await read($, nodes)).map(norm)
     const v: View = {
       ui: $.ui.resolve({ surface: 'terminal', component: 'Pane' }),
-      t: tr(await read($, locale)),
+      t: tr(await localeOf($)),
       list,
       themeId: asTheme(await read($, theme)),
       selectedId,
@@ -815,7 +831,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e) as FullUi
     const { Box, Text, Button, Input, Select } = ui
-    const t = tr(await read($, locale))
+    const t = tr(await localeOf($))
     const list = (await read($, nodes)).map(norm)
     const themeId = asTheme(await read($, theme))
     const selectedId = await read($, selected)

@@ -1,1 +1,1 @@
-{ "name": "step-flow", "version": "0.1.0", "description": "Side pane showing finished work steps as a chain of nodes; failed steps in red with cause and fix", "types": "./types/index.d.ts" }
+{ "name": "step-flow", "version": "0.2.0", "description": "Side pane that records each finished step of a long run, the decisions waiting for you, and what is blocked", "types": "./types/index.d.ts" }

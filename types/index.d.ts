@@ -26,8 +26,6 @@ export type StepNode = {
   options?: StepOption[]
   interim?: string
   decided?: { choice: number; ts: number }
-  // short lines of the tool calls made since the previous step
-  activity?: string[]
 }
 
 // `ask`: a question was just asked and the person has not scrolled since; show it at the top if its exchange is taller than the window.
@@ -56,8 +54,6 @@ declare module 'claude-code' {
       btwInput: number
       rowBg: string
       themePicker: boolean
-      // Tool-call lines waiting for the next recorded step.
-      activity: string[]
       // Decision node ids whose pane choice is being sent.
       deciding: string[]
       // Top row of the window over the list view / detail view, and whether it keeps to the end.

@@ -24,7 +24,6 @@ export type Strings = {
   decided: string
   issue: string
   meanwhile: string
-  activity: string
   decideButton: (letter: string) => string
   goButton: (letter: string) => string
   stepsAfter: (k: number) => string
@@ -86,12 +85,11 @@ const ko: Strings = {
   okReason: '넘어간 이유',
   notDone: '진행하지 못한 작업',
   resolvedRow: '해결',
-  detail: '상세',
+  detail: '한 일',
   needsDecision: '결정 필요',
   decided: '결정됨',
   issue: '쟁점',
   meanwhile: '그동안',
-  activity: '한 일',
   decideButton: l => `${l}로 결정`,
   goButton: l => `${l}로 진행`,
   stepsAfter: k => `이 단계 뒤에 단계 ${k}개가 진행됐습니다`,
@@ -146,12 +144,11 @@ const en: Strings = {
   okReason: 'Why OK',
   notDone: 'Not done',
   resolvedRow: 'Resolved',
-  detail: 'Detail',
+  detail: 'Activity',
   needsDecision: 'Needs decision',
   decided: 'Decided',
   issue: 'Issue',
   meanwhile: 'Meanwhile',
-  activity: 'Activity',
   decideButton: l => `Choose ${l}`,
   goButton: l => `Go with ${l}`,
   stepsAfter: k => `${k} steps were recorded after this one`,

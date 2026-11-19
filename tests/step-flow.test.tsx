@@ -364,7 +364,7 @@ test('title opens the detail view; back returns to the list', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: '조치' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '타입 정의 수정' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^문제: / })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: '상세' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '한 일' })).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: 'back' })).toBeDefined()
   expect(await ui.find({ type: 'Button', text: /btw로 묻기/ })).toBeUndefined()
   expect(await ui.find({ type: 'Button', key: 'c' })).toBeUndefined()
@@ -382,7 +382,7 @@ test('title opens the detail view; back returns to the list', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: '진행하지 못한 작업' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '- 로그인 후 검증' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '필요한 것' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: '상세' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '한 일' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '30초 대기 후에도 실패' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /시각/ })).toBeUndefined()
   await cmd($, 'flow-clear')
@@ -882,7 +882,7 @@ test('English detail view uses the label column labels', async ($, on) => {
   }
   await ui.press({ key: 'back' })
   await ui.press({ key: 'd' })
-  for (const text of [' Blocked ', 'Cause', 'Detail']) expect(await ui.find({ type: 'Text', text })).toBeDefined()
+  for (const text of [' Blocked ', 'Cause', 'Activity']) expect(await ui.find({ type: 'Text', text })).toBeDefined()
   await ui.unmount()
 })
 
@@ -1040,54 +1040,6 @@ test('a refused or failing submit clears decided again, so the buttons come back
   await ui.press({ key: 'decide-B' })
   expect(await ui.find({ type: 'Button', key: 'decide-B' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^B · / })).toBeUndefined()
-  await ui.unmount()
-})
-
-test('activity: tool calls go to the next step, step tools are left out, the buffer is cleared, 40 lines, 120 chars', async ($, on) => {
-  const answer = { result: { ok: true }, text: 'ok' }
-  on('tool.call', () => answer)
-  await setup($, on)
-  const call = (input: any) => $.tool.call(input)
-  // step-flow's own tools are never captured (they would show up in the next step's lines)
-  await call({ tool: TOOL, title: '무시', status: 'done' })
-  await call({ tool: DECIDED, choice: 1 })
-  const r = await call({ tool: 'Bash', command: 'ls -la' })
-  expect(r.result).toEqual({ ok: true })
-  await call({ tool: 'Read', file_path: '/a/b.ts' })
-  await call({ tool: 'Edit', file_path: '/a/c.ts', old_string: 'x', new_string: 'y' })
-  await call({ tool: 'Grep', pattern: 'foo.*bar' })
-  await call({ tool: 'Glob', pattern: '**/*.tsx' })
-  await call({ tool: 'Agent', description: '조사', prompt: '긴 프롬프트' })
-  await call({ tool: 'WebFetch', url: 'https://example.com', prompt: 'x' })
-  await step($, 's1', { title: '첫 단계', status: 'done' })
-  await step($, 's2', { title: '둘째 단계', status: 'done' })
-  const ui = await mount($)
-  await ui.press({ key: 's1' })
-  expect(await ui.find({ type: 'Text', text: '한 일' })).toBeDefined()
-  const lines = (await ui.findAll({ type: 'Text' })).filter((x: any) => x.props.mono).map((x: any) => x.text)
-  expect(lines).toEqual([
-    'Bash ls -la',
-    'Read /a/b.ts',
-    'Edit /a/c.ts',
-    'Grep foo.*bar',
-    'Glob **/*.tsx',
-    'Agent 조사',
-    'WebFetch https://example.com',
-  ])
-  await ui.press({ key: 'back' })
-  await ui.press({ key: 's2' })
-  expect(await ui.find({ type: 'Text', text: '한 일' })).toBeUndefined()
-  await ui.press({ key: 'back' })
-
-  for (let i = 1; i <= 45; i++) await call({ tool: 'Bash', command: `c${i}` })
-  await call({ tool: 'Bash', command: 'x'.repeat(300) })
-  await step($, 's3', { title: '셋째 단계', status: 'done' })
-  await ui.press({ key: 's3' })
-  const many = (await ui.findAll({ type: 'Text' })).filter((x: any) => x.props.mono).map((x: any) => x.text)
-  expect(many).toHaveLength(40)
-  expect(many[0]).toBe('Bash c7')
-  expect(many[39]).toBe(`Bash ${'x'.repeat(115)}`)
-  expect(many[39]?.length).toBe(120)
   await ui.unmount()
 })
 
@@ -1343,11 +1295,9 @@ test('docked: the view follows the end until the person scrolls up', async ($, o
 })
 
 test('docked: the detail view has its own window, the list keeps its place', async ($, on) => {
-  on('tool.call', () => ({ result: { ok: true }, text: 'ok' }))
   await setup($, on)
   await many($, 30)
-  for (let i = 1; i <= 30; i++) await $.tool.call({ tool: 'Bash', command: `c${i}` })
-  await step($, 'long', { title: '긴 단계', status: 'done' })
+  await step($, 'long', { title: '긴 단계', status: 'done', detail: Array.from({ length: 30 }, (_, i) => `c${i + 1}`).join('\n') })
   const ui = await mountPinned($)
   await scrollBy($, -8)
   const before = await markers(ui)
@@ -1404,20 +1354,6 @@ test('not docked: one scrolling body as before, no window, no markers', async ($
     expect(await markers(ui)).toEqual({ up: undefined, down: undefined })
     await ui.unmount()
   }
-})
-
-test('a done step with no status rows draws one rule above Activity, not two', async ($, on) => {
-  on('tool.call', () => ({ result: { ok: true }, text: 'ok' }))
-  await setup($, on)
-  await $.tool.call({ tool: 'Bash', command: 'ls' })
-  await step($, 's1', { title: '단계', status: 'done' })
-  await step($, 's2', { title: '단계 둘', status: 'resolved', cause: '원인', attempts: [{ action: 'a', reason: 'r' }], fix: '고침' })
-  const ui = await mount($)
-  await ui.press({ key: 's1' })
-  const rules = async () => (await ui.findAll({ type: 'Text', text: /^─{60}$/ })).length
-  // one under the time line; the footer's own rule is the second
-  expect(await rules()).toBe(2)
-  await ui.unmount()
 })
 
 const LONG_ANSWER = [
@@ -1492,9 +1428,7 @@ test('docked: an answer taller than the window puts the question at the top; a s
 })
 
 test('docked: the back button and the table header stay above the window', async ($, on) => {
-  on('tool.call', () => ({ result: { ok: true }, text: 'ok' }))
   await setup($, on)
-  for (let i = 1; i <= 30; i++) await $.tool.call({ tool: 'Bash', command: `c${i}` })
   await step($, 'long', { title: '긴 단계', status: 'done' })
   await many($, 30)
   const ui = await mountPinned($)
@@ -1507,8 +1441,7 @@ test('docked: the back button and the table header stay above the window', async
   await ui.unmount()
 
   await cmd($, 'flow-clear')
-  for (let i = 1; i <= 30; i++) await $.tool.call({ tool: 'Bash', command: `c${i}` })
-  await step($, 'long2', { title: '긴 단계 둘', status: 'done' })
+  await step($, 'long2', { title: '긴 단계 둘', status: 'done', detail: Array.from({ length: 30 }, (_, i) => `c${i + 1}`).join('\n') })
   const d = await mountPinned($)
   await d.press({ key: 'long2' })
   await scrollBy($, 20)
@@ -1526,7 +1459,7 @@ test('docked: a 30-line detail can be wheel-scrolled until its last line is show
   const ui = await mountPinned($)
   await ui.press({ key: 's' })
   expect(await ui.find({ type: 'Text', text: '줄 30' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: '상세' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '한 일' })).toBeDefined()
   for (let i = 0; i < 40 && !(await ui.find({ type: 'Text', text: '줄 30' })); i++) await scrollBy($, 3)
   expect(await ui.find({ type: 'Text', text: '줄 30' })).toBeDefined()
   expect(await markers(ui)).toMatchObject({ down: undefined })
@@ -2010,11 +1943,9 @@ test('docked: a double rule shows the very top and the very bottom of an overflo
 })
 
 test('docked: the end rules are the same in English, in every theme, and in a detail view', async ($, on) => {
-  on('tool.call', () => ({ result: { ok: true }, text: 'ok' }))
   await setup($, on, {}, 'English')
   await many($, 30)
-  for (let i = 1; i <= 30; i++) await $.tool.call({ tool: 'Bash', command: `c${i}` })
-  await step($, 'long', { title: 'Long', status: 'done' })
+  await step($, 'long', { title: 'Long', status: 'done', detail: Array.from({ length: 30 }, (_, i) => `c${i + 1}`).join('\n') })
   for (const id of [1, 2, 3, 4, 5, 7]) {
     await cmd($, 'flow-theme', String(id))
     const ui = await mountPinned($)

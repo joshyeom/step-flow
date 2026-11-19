@@ -38,8 +38,6 @@ const btwInput = atom({ plugin: 'step-flow', key: 'btwInput' } as const, 0)
 const rowBg = atom({ plugin: 'step-flow', key: 'rowBg' } as const, '#3a3a3a')
 // True while the theme picker is drawn in the pane's bottom block.
 const themePicker = atom({ plugin: 'step-flow', key: 'themePicker' } as const, false)
-// Short lines of the tool calls made since the last recorded step; the next step takes them.
-const activity = atom({ plugin: 'step-flow', key: 'activity' } as const, [])
 // Decision nodes whose pane choice is on its way to the model (guards a double press).
 const deciding = atom({ plugin: 'step-flow', key: 'deciding' } as const, [])
 // Docked pane: the window over the list view and over the detail view, and whether each keeps to its end.
@@ -53,8 +51,6 @@ const REMINDER =
   "A step-flow side pane shows the user what happened while they were away. Each time a meaningful step of a task ends, call mcp__step-flow__step, as it finishes and not all at the end. status: 'done' = it worked the first time; 'resolved' = it failed, then you fixed it in the same step; 'deferred' = it failed, is not fixed, and does not block the goal or the remaining work (give okReason: why moving on is safe); 'blocked' = it failed, is not fixed, and blocks the goal or the work that depends on it (give notDone: each piece of work you could not do because of it, one short item each, and say in cause what it would take to get past it); 'decision' = a choice only the user should make. Got past a problem another way = resolved with fix = the other way; could not get past it = deferred or blocked. For anything but done give cause (the problem and why). For resolved also give attempts (each thing you tried WITH the reason you tried it) and fix. When you fix a deferred or blocked step later, call mcp__step-flow__resolve with its id and the fix. On blocked, stop the work that depends on it and continue only independent work; if nothing independent is left, end the turn and say what is needed; give options (at least 2 of { option, note }, no A/B letters or numbers in option: the pane adds them) on deferred or blocked whenever there is more than one way to continue. Whenever the user must choose (an approach, a trade-off, anything you should not decide alone), record a decision step (cause = what must be decided and why, options = at least 2 of { option, note }, interim = what you do meanwhile), then keep working on what does not depend on it; do this also before you end a turn with a question to the user. The user chooses by pressing a button in the pane, which sends a prompt from the step-flow plugin starting with \"결정 (\", \"Decision (\", \"진행 (\" or \"Go ahead (\": that is the user's own choice and is already recorded, so continue with it without asking again and without calling mcp__step-flow__decided; but a choice on an old step may be stale, so check that it still applies to the current state before you change anything, and never undo later work without asking the user first; if you refuse a pane choice, reopen it by calling mcp__step-flow__decided with that step's id and choice 0, then tell the user. If the user answers in chat instead, call mcp__step-flow__decided with the step id and the chosen option number. Before you tell the user the task is finished, or end a long run, name every open item in your message: decisions still pending, choices still open on failures, and blocked steps with the work each one held up. detail is longer notes (what you checked, numbers, file paths, commands) the user sees when they open the step: give a fuller detail on every non-trivial step. Keep title under 40 characters and write in the user's language."
 
 const MAX = 200
-const ACTIVITY_KEEP = 40
-const ACTIVITY_CLIP = 120
 const BTW_KEEP = 50
 const BTW_RULES =
   "You answer a side question about an ongoing Claude Code session. Use only the transcript and work log given; if the answer is not there, say you don't know. You cannot run tools or change anything. Answer briefly, in the language of the question. The answer is rendered as markdown in a narrow side pane, so keep it short and use at most simple bullet lists and bold, no headings or tables."
@@ -173,28 +169,6 @@ const visible = (list: StepNode[]) => {
   }
 
   return { shown: list.filter(n => !skip.has(n.id)), hidden: skip.size }
-}
-
-// One short line for a tool call: `Bash <command>`, `Read <file>`, ...; null for step-flow's own tools.
-const RESERVED = new Set(['tool', 'tool_use_id', 'agentId', 'consent', 'requestMeta'])
-const activityLine = (e: Record<string, unknown>) => {
-  const tool = String(e.tool)
-  if (tool.startsWith('mcp__step-flow__')) return null
-  const text = (k: string) => (typeof e[k] === 'string' ? (e[k] as string) : '')
-  const arg =
-    tool === 'Bash'
-      ? text('command')
-      : tool === 'Read' || tool === 'Edit' || tool === 'Write'
-        ? text('file_path')
-        : tool === 'Grep' || tool === 'Glob'
-          ? text('pattern')
-          : tool === 'Agent'
-            ? text('description')
-            : (Object.entries(e).find(([k, v]) => !RESERVED.has(k) && typeof v === 'string' && v.length <= 200)?.[1] as
-                | string
-                | undefined) ?? ''
-
-  return clip(`${tool} ${arg}`.trim().replace(/\s+/g, ' '), ACTIVITY_CLIP)
 }
 
 // What the pane draws from, as read from state; the render and ui.scroll hooks build the same layout from it.
@@ -570,18 +544,6 @@ export const register: Register = on => {
     return { text: t.themePickerOpened }
   })
 
-  // Observes every tool call except step-flow's own; never touches the event or the result.
-  // ponytail: calls of parallel tools and subagents interleave into the one buffer; per-agent buffers if that matters.
-  on('tool.call', ($, e, next) => {
-    const r = next(e)
-    try {
-      const line = activityLine(e as unknown as Record<string, unknown>)
-      if (line) update($, activity, l => [...l, line].slice(-ACTIVITY_KEEP)).catch(() => {})
-    } catch {}
-
-    return r
-  })
-
   on('tool.run', { tool: TOOL }, async ($, e) => {
     const input = e as unknown as Record<string, unknown>
     const status = input.status as StepStatus
@@ -668,12 +630,6 @@ export const register: Register = on => {
     }
 
     const ts = Date.now()
-    let lines: string[] = []
-    await update($, activity, l => {
-      lines = l
-
-      return []
-    })
     const node: StepNode = {
       id: e.tool_use_id,
       at: hhmm(ts),
@@ -688,7 +644,6 @@ export const register: Register = on => {
       ...(status === 'blocked' ? { notDone } : {}),
       ...(isDecision ? { options, interim } : {}),
       ...(failure && options.length ? { options } : {}),
-      ...(lines.length ? { activity: lines } : {}),
     }
     // Eviction order: done, other settled nodes, failures not yet fixed or chosen, open choices last; oldest first, never the new node.
     const rank = (n: StepNode) => (n.status === 'done' ? 0 : isOpen(norm(n)) ? 3 : isKept(norm(n)) ? 2 : 1)

@@ -5,7 +5,7 @@ Pure SVG + one <style> with @keyframes. Every animation is 22 s, linear or steps
 infinite, with keyframes in %, so the beats never drift. Without animation
 (prefers-reduced-motion) the base styles show the poster: the list with the blocked
 step expanded, caption 2 only. UI = step-flow v0.3 (a blocked step shows its fields in the
-list, four summary counts, pinned header and footer, detail view with Activity).
+list, four summary counts, pinned header and footer, detail view).
 """
 import pathlib
 import unicodedata
@@ -192,10 +192,10 @@ EN = dict(
     title='step-flow: a side pane that lists the steps Claude finished',
     desc=('Animated demo in four steps. Run /flow to open the pane. Finished steps appear in it, and a blocked '
           'step shows its cause and the work that was not done. Click a step to see what Claude tried '
-          'and which commands it ran. Ask a question in the pane without changing your current conversation.'),
+          'and what it did. Ask a question in the pane without changing your current conversation.'),
     caps=['Open the pane with /flow.',
           'Finished steps appear in the pane. If a step is blocked, you can see why and what was left undone.',
-          'Click a step to see what Claude tried and which commands it ran.',
+          'Click a step to see what Claude tried and what it did.',
           'Ask about the work here without affecting your current conversation.'],
     task='Add a login page and run the E2E tests',
     opened='step-flow: Opened the work flow panel.',
@@ -215,9 +215,9 @@ EN = dict(
     back='[ ← List ]', dur='10:11 ~ 10:12 (1 min)',
     sum=lambda s, k, m, j: (f' {s} {"step" if s == 1 else "steps"}, ', f'{k} to decide', ', ', f'{m} blocked', ', ',
                             f'{j} deferred'),
-    detail_l='Detail', act_l='Activity',
-    acts=['Bash pnpm test:e2e', 'Edit playwright.config.ts', 'Bash pnpm test:e2e'],
-    detail='Ran pnpm test:e2e twice; both runs stopped at the login page after the wait ran out.',
+    detail_l='Activity',
+    detail='Ran pnpm test:e2e twice; both runs stopped at the login page after the wait ran out. '
+           'Then raised the wait to 60 s and ran them again; the login page still timed out.',
     qlabel='Question: ', qph="A side chat that doesn't affect the session context",
     question='Why did the E2E test fail?', thinking='Thinking…',
     answer=('The login page timed out after 30 s. Raising the wait to 60 s did not help, so the step is '
@@ -227,11 +227,11 @@ KO = dict(
     lang='ko',
     title='step-flow: Claude가 끝낸 단계를 옆 패널에 모아 보여 줍니다',
     desc=('네 단계로 보는 데모입니다. /flow로 패널을 엽니다. 끝낸 단계가 패널에 표시되고, 중단된 단계에는 원인과 '
-          '진행하지 못한 작업이 나옵니다. 단계를 누르면 시도한 방법과 실행한 명령을 볼 수 있습니다. 패널에서 질문해도 '
+          '진행하지 못한 작업이 나옵니다. 단계를 누르면 시도한 방법과 한 일을 볼 수 있습니다. 패널에서 질문해도 '
           '기존 대화에는 영향이 없습니다.'),
     caps=['/flow로 패널을 엽니다.',
           '끝난 단계는 패널에 표시됩니다. 단계가 중단되면 왜 멈췄는지, 어떤 작업을 진행하지 못했는지 목록에서 바로 볼 수 있습니다.',
-          '단계를 누르면 시도한 방법과 실행한 명령을 볼 수 있습니다.',
+          '단계를 누르면 시도한 방법과 한 일을 볼 수 있습니다.',
           '패널에서 작업 내용을 물어봐도 기존 대화에는 영향을 주지 않습니다.'],
     task='로그인 페이지를 추가하고 E2E 테스트를 실행해 줘',
     opened='step-flow: 작업 흐름 패널을 열었습니다.',
@@ -250,9 +250,9 @@ KO = dict(
     sep=': ',
     back='[ ← 목록 ]', dur='10:11 ~ 10:12 (1분)',
     sum=lambda s, k, m, j: (f' 단계 {s}개, ', f'결정 필요 {k}개', ', ', f'중단 {m}개', ', ', f'보류 {j}개'),
-    detail_l='상세', act_l='한 일',
-    acts=['Bash pnpm test:e2e', 'Edit playwright.config.ts', 'Bash pnpm test:e2e'],
-    detail='pnpm test:e2e를 두 번 실행했고, 두 번 모두 대기 시간이 끝난 뒤 로그인 화면에서 멈췄습니다.',
+    detail_l='한 일',
+    detail='pnpm test:e2e를 두 번 실행했고, 두 번 모두 대기 시간이 끝난 뒤 로그인 화면에서 멈췄습니다. '
+           '대기를 60초로 늘려 다시 실행했지만 로그인 화면에서 또 시간이 초과됐습니다.',
     qlabel='질문: ', qph='세션 컨텍스트에는 영향이 가지 않는 대화입니다',
     question='E2E 테스트는 왜 실패했어?', thinking='답을 만드는 중입니다…',
     answer='로그인 화면이 30초 뒤 시간 초과됐습니다. 대기를 60초로 늘려도 해결되지 않아 중단됐고, E2E 검증 2개를 진행하지 못했습니다.',
@@ -390,13 +390,10 @@ def build(S):
          text(0, L(4) + 12.5, S['cause_l'], RED), text(vx, L(4) + 12.5, S['cause'], FG),
          text(0, L(6) + 12.5, S['notdone_l'], GRAY),
          text(0, L(a0) + 12.5, S['attempt_l'], GRAY), text(vx, L(a0) + 12.5, S['attempt'], FG),
-         text(vx, L(a0 + 1) + 12.5, S['reason'], GRAY),
-         hline(0, L(a0 + 2) + LH / 2, PCW * CELL, RULE), text(0, L(a0 + 3) + 12.5, S['act_l'], GRAY)]
+         text(vx, L(a0 + 1) + 12.5, S['reason'], GRAY)]
     for j, it in enumerate(S['items']):
         c.append(text(vx, L(6 + j) + 12.5, '- ' + it, FG))
-    for j, a_ in enumerate(S['acts']):
-        c.append(text(0, L(a0 + 4 + j) + 12.5, a_, GRAY))
-    r0 = a0 + 4 + len(S['acts'])
+    r0 = a0 + 2
     c.append(hline(0, L(r0) + LH / 2, PCW * CELL, RULE))
     dl = wrap(S['detail'], PCW * CELL - vx)
     c.append(text(0, L(r0 + 1) + 12.5, S['detail_l'], GRAY))

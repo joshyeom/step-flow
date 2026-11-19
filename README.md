@@ -4,11 +4,18 @@
 
 A Claude Code mod that adds a side pane. During long autonomous runs it records each finished step, so you can see what happened, what is waiting for your decision and what is blocked, without scrolling the chat.
 
+## Why use it
+
+- **See what Claude Code did at a glance.** The step list shows the work without scrolling the chat.
+- **Find bottlenecks and failure causes fast.** Each step records where it got stuck, how it was fixed, or why it failed if it was not.
+- **Decide with a click.** When Claude asks for a decision, press an option button in the pane and the choice goes straight to Claude.
+- **Ask about a step without touching the context.** Questions typed in the pane are answered by a separate model call, so neither the question nor the answer enters the working Claude's context.
+
 ## Demo
 
 Basic use:
 
-![Animated guide: open the pane with /flow, watch finished steps land, see why a step is blocked, click it for the commands Claude ran, and ask a question in the pane](docs/guide-basic-en.svg)
+![Animated guide: open the pane with /flow, watch finished steps land, see why a step is blocked, click it for what Claude did, and ask a question in the pane](docs/guide-basic-en.svg)
 
 When Claude needs your decision:
 
@@ -60,8 +67,7 @@ The summary line reads `N steps, K to decide, M blocked, J deferred`.
 Click a step to see:
 
 - The cause, each attempt with its reason, and the fix.
-- The tool calls Claude made for that step (Bash commands, files read or edited, searches), under `Activity`.
-- Claude's notes, under `Detail`.
+- Claude's notes, under `Activity`.
 
 For a decision step, the detail view shows the issue, each option with what it means, and what Claude does meanwhile.
 

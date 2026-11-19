@@ -174,7 +174,7 @@ export const fields = ({ ui: { Box, Text }, t }: Ctx, n: StepNode) => {
   return rows
 }
 
-// Detail view below the back button, as units: badge + title, time span, status rows, activity, detail.
+// Detail view below the back button, as units: badge + title, time span, status rows, detail.
 // `after`: how many steps were recorded after this one (shown above the choice buttons).
 export const detail = (
   { ui: { Box, Text, Button }, t, width, decide }: Ctx,
@@ -315,17 +315,8 @@ export const detail = (
     units.push(...g)
   })
   // A rule only where something sits between it and the one above.
-  let filled = groups.length > 0
-  if (n.activity?.length) {
-    if (filled) units.push(rule)
-    units.push({ rows: 1, el: <Text color="inactive">{t.activity}</Text> })
-    for (const line of n.activity) {
-      units.push({ rows: wrapRows(line, cols), el: <Text color="inactive" mono wrap="wrap">{line}</Text> })
-    }
-    filled = true
-  }
   if (n.detail) {
-    if (filled) units.push(rule)
+    if (groups.length > 0) units.push(rule)
     // One row unit per line so the window can reach the end of a long detail.
     // ponytail: a single line taller than the window still cannot be scrolled inside; split by width if it matters.
     n.detail.split('\n').forEach((line, i) => {

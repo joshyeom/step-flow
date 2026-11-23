@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { isFailure, isKept, isOpen, norm } from '../hooks/themes'
+import { tr } from '../hooks/i18n'
+import { cells, detail, isFailure, isKept, isOpen, norm, padCells, wrapLines, wrapRows } from '../hooks/themes'
 
 const PANE = {
   plugin: 'step-flow',
@@ -201,6 +202,7 @@ test('blocked: needs cause and notDone, a stray needs is ignored; resolved and d
   expect(await ui.find({ type: 'Text', text: '진행하지 못한 작업' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '- 미완료 하나' })).toBeDefined()
   expect(await ui.find({ type: 'Button', text: /로 진행/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'decide-A' })).toBeUndefined()
   await ui.press({ key: 'back' })
   expect(await ui.find({ type: 'Text', text: /키를 주세요|필요한 것/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: '- 결제 확인' })).toBeDefined()
@@ -1003,11 +1005,11 @@ test('decision detail view: rows, badge, buttons', async ($, on) => {
   const badge = await ui.find({ type: 'Text', text: ' 결정 필요 ' })
   expect(badge.props.color).toBe('warning')
   expect(badge.props.inverse).toBe(true)
-  for (const text of ['쟁점', '무중단이 필요한지 모릅니다', 'A', '블루그린', '무중단, 비용 두 배', 'B', '롤링', '그동안', '배포 스크립트 작성']) {
+  for (const text of ['쟁점', '무중단이 필요한지 모릅니다', /^A\s*$/, '블루그린', '무중단, 비용 두 배', /^B\s*$/, '롤링', '그동안', '배포 스크립트 작성']) {
     expect(await ui.find({ type: 'Text', text })).toBeDefined()
   }
-  expect(await ui.find({ type: 'Button', key: 'decide-A', text: 'A로 결정' })).toBeDefined()
-  expect(await ui.find({ type: 'Button', key: 'decide-B', text: 'B로 결정' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'decide-A', text: /블루그린/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'decide-B', text: /롤링/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^결정$/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -1017,7 +1019,7 @@ test('English decision detail view', async ($, on) => {
   await step($, 'q1', DECISION)
   const en = await mount($)
   await en.press({ key: 'q1' })
-  expect(await en.find({ type: 'Button', key: 'decide-A', text: 'Choose A' })).toBeDefined()
+  expect(await en.find({ type: 'Button', key: 'decide-A', text: /블루그린/ })).toBeDefined()
   expect(await en.find({ type: 'Text', text: ' Needs decision ' })).toBeDefined()
   expect(await en.find({ type: 'Text', text: 'Issue' })).toBeDefined()
   expect(await en.find({ type: 'Text', text: 'Meanwhile' })).toBeDefined()
@@ -1039,6 +1041,9 @@ test('pressing a choice sets decided and submits the exact prompt; the row then 
   expect(sent.map(x => x.replace(/\d\d:\d\d/, 'HH:MM'))).toEqual([
     '결정 (사용자가 step-flow 패널에서 직접 눌렀습니다): "배포 방식" (HH:MM 기록, 이후 단계 0개) → A (블루그린: 무중단, 비용 두 배). 쟁점: 무중단이 필요한지 모릅니다. 이미 기록했습니다 (q1). 바꾸기 전에 지금 상태를 확인하세요. 이 단계가 이미 해결됐거나 이 선택이 뒤에 한 작업과 부딪히면 아무것도 바꾸지 말고, mcp__step-flow__decided를 이 id와 choice 0으로 호출해 선택을 다시 연 뒤 사용자에게 먼저 알리세요. 문제가 없으면 이 선택으로 진행하세요.',
   ])
+  // the press returns to the list; the pick is read in the detail view
+  expect(await ui.find({ type: 'Button', key: 'back' })).toBeUndefined()
+  await ui.press({ key: 'q1' })
   expect(await ui.find({ type: 'Text', text: /^A · \d\d:\d\d$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' 결정됨 ' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '✓ 블루그린' })).toBeDefined()
@@ -1076,11 +1081,13 @@ test('a refused or failing submit clears decided again, so the buttons come back
   const ui = await mount($)
   await ui.press({ key: 'q1' })
   await ui.press({ key: 'decide-A' })
+  await ui.press({ key: 'q1' })
   expect(await ui.find({ type: 'Button', key: 'decide-A' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^A · / })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^단계 1개, 결정 필요 1개, 중단 0개, 보류 0개$/ })).toBeDefined()
   mode = 'throw'
   await ui.press({ key: 'decide-B' })
+  await ui.press({ key: 'q1' })
   expect(await ui.find({ type: 'Button', key: 'decide-B' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^B · / })).toBeUndefined()
   await ui.unmount()
@@ -1251,6 +1258,14 @@ const mountPinned = ($: any, props: Record<string, unknown> = {}) =>
     viewport: { columns: 100, rows: 30, isFullscreen: true },
   })
 
+// The window element without the focusable rows drawn just outside it (the clipped ones above and below).
+const noStops = (win: any) => ({
+  ...win,
+  children: (win.children as any[])
+    .filter((k: any) => k.props?.key !== 'focus-before')
+    .map((k: any) => ({ ...k, children: (k.children as any[]).filter((u: any) => u.props?.key !== 'focus-after') })),
+})
+
 const scrollBy = ($: any, by: number) =>
   $.ui.scroll({
     component: 'Pane',
@@ -1376,7 +1391,7 @@ test('docked: a question and its answer sit in the window, the input stays in th
   await scrollBy($, -100)
   await ui.input({ key: 'btw:0', text: '질문입니다', kind: 'submit' })
   const kids = (await ui.findAll({}))[0].children as any[]
-  const win = JSON.stringify(kids[1])
+  const win = JSON.stringify(noStops(kids[1]))
   expect(win).toContain('질문입니다')
   expect(win).toContain('답입니다')
   expect(JSON.stringify(kids.slice(2))).not.toContain('질문입니다')
@@ -1419,7 +1434,7 @@ test('docked: every unit keeps its height (flexShrink 0), the window clips', asy
   await setup($, on)
   await many($, 30)
   const ui = await mountPinned($)
-  const win = ((await ui.findAll({}))[0].children as any[])[1]
+  const win = noStops(((await ui.findAll({}))[0].children as any[])[1])
   expect(win.props.overflow).toBe('hidden')
   const units = win.children[0].children as any[]
   expect(units.length).toBeGreaterThan(5)
@@ -1455,7 +1470,7 @@ test('docked: an answer taller than the window puts the question at the top; a s
   await many($, 30)
   const ui = await mountPinned($)
   await ui.input({ key: 'btw:0', text: '긴 질문', kind: 'submit' })
-  const win = JSON.stringify(((await ui.findAll({}))[0].children as any[])[1])
+  const win = JSON.stringify(noStops(((await ui.findAll({}))[0].children as any[])[1]))
   expect(win.indexOf('긴 질문')).toBeGreaterThan(-1)
   // nothing of the list rows sits above the question in the window
   expect(win.indexOf('긴 질문')).toBeLessThan(win.indexOf('첫 문단입니다.'))
@@ -1690,13 +1705,14 @@ test('deferred and blocked with options: open choice tags, buttons, the steps-af
   await step($, 'a2', { title: '빌드', status: 'done' })
   await ui.press({ key: 'f1' })
   expect(await ui.find({ type: 'Text', text: '이 단계 뒤에 단계 2개가 진행됐습니다' })).toBeDefined()
-  expect(await ui.find({ type: 'Button', key: 'decide-A', text: 'A로 진행' })).toBeDefined()
-  expect(await ui.find({ type: 'Button', key: 'decide-B', text: 'B로 진행' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'decide-A', text: /건너뜀/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'decide-B', text: /재시도/ })).toBeDefined()
   await ui.press({ key: 'decide-B' })
   expect(sent.map(HM)).toEqual([
     '진행 (사용자가 step-flow 패널에서 직접 눌렀습니다): "배포" (보류, HH:MM 기록, 이후 단계 2개) → B (재시도: 권한 받고). 원인: 권한. 이미 기록했습니다 (f1). 바꾸기 전에 지금 상태를 확인하세요. 이 단계가 이미 해결됐거나 이 선택이 뒤에 한 작업과 부딪히면 아무것도 바꾸지 말고, mcp__step-flow__decided를 이 id와 choice 0으로 호출해 선택을 다시 연 뒤 사용자에게 먼저 알리세요. 문제가 없으면 이 방법으로 진행하세요. 고치면 이 id로 mcp__step-flow__resolve를 호출하세요.',
   ])
   // chosen: buttons gone, the pick shown, no longer open and counted nowhere
+  await ui.press({ key: 'f1' })
   expect(await ui.find({ type: 'Button', key: 'decide-A' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^B · \d\d:\d\d$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '✓ 재시도' })).toBeDefined()
@@ -1725,10 +1741,11 @@ test('blocked with options: English prompt, chosen title is plain, tag priority,
   expect(await ui.find({ type: 'Text', text: 'Login', color: 'error' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^1 step, 1 to decide, 0 blocked, 0 deferred$/ })).toBeDefined()
   await ui.press({ key: 'b1' })
-  expect(await ui.find({ type: 'Button', key: 'decide-A', text: 'Go with A' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'decide-A', text: /건너뜀/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Not done' })).toBeDefined()
   await ui.press({ key: 'decide-A' })
   // refused: back to open
+  await ui.press({ key: 'b1' })
   expect(await ui.find({ type: 'Button', key: 'decide-A' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^A · / })).toBeUndefined()
   mode = 'ok'
@@ -1737,6 +1754,7 @@ test('blocked with options: English prompt, chosen title is plain, tag priority,
   expect(sent.map(HM)).toEqual([
     'Go ahead (the user pressed this in the step-flow pane): "Login" (Blocked, recorded HH:MM, 0 steps since) → A (건너뜀: 없이 진행). Cause: No account. Already recorded (b1). Check the current state before changing anything. If this step is already fixed or this choice conflicts with work done after it, change nothing, call mcp__step-flow__decided with this id and choice 0 to reopen the choice, and tell the user first. Otherwise go on with this choice. When it is fixed, call mcp__step-flow__resolve with this id.',
   ])
+  await ui.press({ key: 'b1' })
   expect(await ui.find({ type: 'Text', text: ' Blocked ' })).toBeDefined()
   await ui.press({ key: 'back' })
   // chosen: gray tag, plain title, counted nowhere
@@ -1898,7 +1916,7 @@ test('decided with choice 0 reopens a decision and a failure with options: butto
   expect((await decided($, { id: 'q1', choice: 0 })).result).toBe('reopened q1 "배포 방식"')
   expect(await ui.find({ type: 'Text', text: /^단계 2개, 결정 필요 1개, 중단 0개, 보류 0개$/ })).toBeDefined()
   await ui.press({ key: 'q1' })
-  expect(await ui.find({ type: 'Button', key: 'decide-A', text: 'A로 결정' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'decide-A', text: /블루그린/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' 결정 필요 ' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^[AB] · \d\d:\d\d$/ })).toBeUndefined()
   await ui.press({ key: 'back' })
@@ -1909,7 +1927,7 @@ test('decided with choice 0 reopens a decision and a failure with options: butto
   expect(await textColors(ui, /^\s*결정 필요\s*$/)).toEqual(['warning', 'warning'])
   expect(await ui.find({ type: 'Text', text: /^\s*선택됨\s*$/ })).toBeUndefined()
   await ui.press({ key: 'f1' })
-  expect(await ui.find({ type: 'Button', key: 'decide-B', text: 'B로 진행' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'decide-B', text: /재시도/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -1939,7 +1957,7 @@ test('choice 0: nothing to reopen is a plain result; the id rule denies with the
 // The scroll window of a docked pane: its wrapped units, to tell the double rules from the rest.
 const windowUnits = async (ui: any) => {
   const root = (await ui.findAll({}))[0]
-  const win = (root.children as any[]).find((k: any) => k.props?.overflow === 'hidden')
+  const win = noStops((root.children as any[]).find((k: any) => k.props?.overflow === 'hidden'))
 
   return (win.children[0].children as any[]).map((u: any) => JSON.stringify(u))
 }
@@ -2257,5 +2275,478 @@ test('a leading A: / A. / 1. on an option label is stripped, decision and failur
   await ui.press({ key: 'q2' })
   expect(await ui.find({ type: 'Text', text: 'Redis 캐시' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'A 팀 승인' })).toBeDefined()
+  await ui.unmount()
+})
+
+// A list row's title lines are one Button each: filled with spaces to its width, with a press anywhere opening the step.
+const WIDE = /[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af]/
+const realCells = cells
+const rowLines = (button: any) => textOf(button).split('\n')
+
+test('wrapLines gives the lines wrapRows counts: Korean, English, a long word, width 1', () => {
+  const samples = [
+    '',
+    'abc',
+    'hello world foo bar baz',
+    'Install the dependencies and run the whole build once more',
+    '한글 제목이 아주 길어서 줄을 나눠야 합니다',
+    '가나다라마바사아자차카타파하 끝',
+    `${'a'.repeat(50)} b`,
+    'a  b   c',
+  ]
+  for (const s of samples) {
+    for (const w of [1, 2, 3, 4, 7, 10, 20, 60]) {
+      // an odd width cuts a Hangul word through a two-cell character, which wrapRows counts as one more cell
+      if (w % 2 === 1 && WIDE.test(s)) continue
+      const lines = wrapLines(s, w)
+      expect(lines.length, `${s} at ${w}`).toBe(wrapRows(s, w))
+      if (!WIDE.test(s)) expect(lines.every(l => cells(l) <= w), `${s} at ${w}`).toBe(true)
+    }
+  }
+  expect(wrapLines('aaa bbb ccc', 7)).toEqual(['aaa bbb', 'ccc'])
+  expect(wrapLines('abcdefg hi', 3)).toEqual(['abc', 'def', 'g', 'hi'])
+  expect(wrapLines('한글 제목', 4)).toEqual(['한글', '제목'])
+  expect(padCells('한a', 6)).toBe('한a   ')
+  expect(padCells('abcdef', 3)).toBe('abcdef')
+})
+
+// bodyColumns 60: the width of the title Button per theme, docked or not (a card takes 4, a rail or time column more)
+const buttonWidth = (theme: number, docked: boolean, fields: boolean) =>
+  ({ 1: 56, 2: docked ? 60 : 58, 3: fields ? 56 : 60, 4: 60, 5: docked ? 60 : 50, 7: 60 })[theme] as number
+
+test('every theme, docked or not: one Button per step, padded to its width, a press opens the step', async ($, on) => {
+  await setup($, on)
+  await seed($)
+  await step($, 'q', DECISION)
+  for (const id of [1, 2, 3, 4, 5, 7]) {
+    await cmd($, 'flow-theme', String(id))
+    for (const docked of [false, true]) {
+      const ui = docked ? await mountPinned($, { scroll: { offset: 0, bodyRows: 150 } }) : await mount($)
+      for (const key of ['a', 'b', 'c', 'd', 'q']) {
+        const buttons = await ui.findAll({ type: 'Button', key })
+        expect(buttons, `theme ${id} ${docked} ${key}`).toHaveLength(1)
+        const button = buttons[0]
+        // only strings and Text inside, and the title line fills the width
+        expect(button.children.every((c: any) => typeof c === 'string' || c.type === 'Text')).toBe(true)
+        const lines = rowLines(button)
+        expect(lines).toHaveLength(1)
+        const fields = key === 'b' || key === 'c' || key === 'd'
+        expect(realCells(lines[0] ?? ''), `theme ${id} ${docked} ${key}`).toBe(buttonWidth(id, docked, fields))
+      }
+      await ui.press({ key: 'q' })
+      expect(await ui.find({ type: 'Button', key: 'back' })).toBeDefined()
+      await ui.press({ key: 'back' })
+      await ui.unmount()
+    }
+  }
+})
+
+test('a one-line title keeps its place: glyph, time, title, one space, tag, then spaces up to the width', async ($, on) => {
+  await setup($, on, { theme: 4 })
+  await seed($)
+  await step($, 'q', DECISION)
+  const ui = await mount($)
+  const text = async (key: string) => HM(textOf(await ui.find({ type: 'Button', key })))
+  expect(await text('a')).toBe(`✓ HH:MM 설치${' '.repeat(60 - realCells('✓ HH:MM 설치'))}`)
+  expect(await text('q')).toBe(`? HH:MM 배포 방식  결정 필요 ${' '.repeat(60 - realCells('? HH:MM 배포 방식  결정 필요 '))}`)
+  expect(await text('d')).toBe(`✗ HH:MM E2E  중단 ${' '.repeat(60 - realCells('✗ HH:MM E2E  중단 '))}`)
+  await ui.unmount()
+  await cmd($, 'flow-theme', '7')
+  const t7 = await mount($)
+  const row = HM(textOf(await t7.find({ type: 'Button', key: 'q' })))
+  // time column 7, title column 60 - 7 - col3, the result column
+  expect(row.startsWith('HH:MM  배포 방식')).toBe(true)
+  expect(row.endsWith('결정 필요')).toBe(false)
+  expect(realCells(row)).toBe(60)
+  await t7.unmount()
+})
+
+test('a long title wraps into the one Button: lines joined by a newline, indented under the prefix, each filled to the width', async ($, on) => {
+  await setup($, on)
+  const title = '가나다라 마바사아 자차카타 파하가나 다라마바 사아자차 카타파하 가나다라 마바사아'
+  await step($, 'l', { title, status: 'decision', cause: '이유', options: DECISION.options, interim: '진행' })
+  for (const id of [1, 2, 3, 4, 5, 7]) {
+    await cmd($, 'flow-theme', String(id))
+    for (const docked of [false, true]) {
+      const ui = docked ? await mountPinned($, { scroll: { offset: 0, bodyRows: 80 } }) : await mount($)
+      const lines = rowLines(await ui.find({ type: 'Button', key: 'l' }))
+      expect(lines.length, `theme ${id} ${docked}`).toBeGreaterThan(1)
+      const width = buttonWidth(id, docked, false)
+      for (const line of lines) expect(realCells(line), `theme ${id} ${docked}`).toBe(width)
+      // the title is the same words, in order
+      const words = lines.join(' ').replace(/\d\d:\d\d/, '').split(/\s+/).filter(w => WIDE.test(w) && w !== '결정' && w !== '필요' && w !== '결정됨')
+      expect(words.join(' ')).toBe(title)
+      await ui.unmount()
+    }
+  }
+})
+
+test('pressing a choice returns to the list; deferred and blocked picks too; a refused send shows the step as open again', async ($, on) => {
+  let mode: 'ok' | 'drop' = 'ok'
+  on('prompt.submit', (_: any, e: any) => (mode === 'drop' ? { drop: 'busy' } : { text: e.text }))
+  on('ui.toast', () => ({ value: undefined }))
+  await setup($, on)
+  await step($, 'q1', DECISION)
+  await deferred($, 'f1', { options: FAIL_OPTS })
+  await blocked($, 'b1', { options: FAIL_OPTS })
+  const ui = await mount($)
+  for (const key of ['q1', 'f1', 'b1']) {
+    await ui.press({ key })
+    await ui.press({ key: 'decide-A' })
+    expect(await ui.find({ type: 'Button', key: 'back' }), key).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key }), key).toBeDefined()
+  }
+  expect(await ui.find({ type: 'Text', text: /^단계 3개, 결정 필요 0개, 중단 0개, 보류 0개$/ })).toBeDefined()
+  await ui.unmount()
+
+  await cmd($, 'flow-clear')
+  mode = 'drop'
+  await step($, 'q2', DECISION)
+  const again = await mount($)
+  await again.press({ key: 'q2' })
+  await again.press({ key: 'decide-A' })
+  expect(await again.find({ type: 'Button', key: 'back' })).toBeUndefined()
+  expect(await again.find({ type: 'Button', key: 'q2' })).toBeDefined()
+  expect(await again.find({ type: 'Text', text: ' 결정 필요 ' })).toBeDefined()
+  expect(await again.find({ type: 'Text', text: /^단계 1개, 결정 필요 1개, 중단 0개, 보류 0개$/ })).toBeDefined()
+  await again.unmount()
+})
+
+// ui.focus as the engine raises it when the person moves the ring (Tab, arrows or a click).
+const focusOn = ($: any, element: string) =>
+  $.ui.focus({ component: 'Pane', requestId: 'step-flow', plugin: 'step-flow', element, origin: { kind: 'person' } })
+
+test('docked: keyboard focus on an edge row brings the neighbour into view; the move is never refused', async ($, on) => {
+  on('ui.focus', { plugin: '*' }, () => ({}))
+  await setup($, on)
+  await many($, 40)
+  const ui = await mountPinned($)
+  await scrollBy($, -1000)
+  // the Buttons drawn: the window's rows and, clipped, the focusable row just below it (and above, once scrolled)
+  const keys = async () => (await ui.findAll({ type: 'Button' })).map((b: any) => b.key).filter((k: string) => /^d\d+$/.test(k))
+  const num = (k: string | undefined) => Number((k ?? '').slice(1))
+  const shown = await keys()
+  const lastRow = shown[shown.length - 2] as string
+  const beyond = `d${num(shown[shown.length - 1]) + 1}`
+  expect(shown).not.toContain(beyond)
+  expect(await focusOn($, lastRow)).toEqual({})
+  expect(await keys()).toContain(beyond)
+  // the ring is then on the same key again, so a second ui.focus finds the window right and moves nothing
+  const moved = await keys()
+  expect(await focusOn($, lastRow)).toEqual({})
+  expect(await keys()).toEqual(moved)
+  // the first row of the window: the one above it comes into view
+  await scrollBy($, 10)
+  const around = await keys()
+  const firstRow = around[1] as string
+  const above = `d${num(around[0]) - 1}`
+  expect(around).not.toContain(above)
+  expect(await focusOn($, firstRow)).toEqual({})
+  expect(await keys()).toContain(above)
+  // a row already in the middle moves nothing
+  const before = await keys()
+  await focusOn($, before[Math.floor(before.length / 2)] as string)
+  expect(await keys()).toEqual(before)
+  await ui.unmount()
+})
+
+test('docked: opening a decision brings its buttons into a small window; a choice returns to the list', async ($, on) => {
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text }))
+  await setup($, on)
+  await step($, 'q1', DECISION)
+  await step($, 'q2', { ...DECISION, title: '두 번째 결정' })
+  const ui = await mountPinned($, { scroll: { offset: 0, bodyRows: 10 } })
+  await ui.press({ key: 'q1' })
+  // the window is 3 rows tall: only the reveal on open puts the buttons in it
+  expect(await ui.find({ type: 'Button', key: 'decide-A' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'decide-B' })).toBeDefined()
+  await ui.press({ key: 'back' })
+  expect(await ui.find({ type: 'Button', key: 'q1' })).toBeDefined()
+  await ui.press({ key: 'q1' })
+  await ui.press({ key: 'decide-A' })
+  expect(await ui.find({ type: 'Button', key: 'back' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'q2' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('cells counts as the engine draws: arrows and checks one, Hangul and emoji two, marks none, FE0F makes two', () => {
+  expect(cells('→—✓')).toBe(3)
+  expect(cells('한글')).toBe(4)
+  expect(cells('✅🚀')).toBe(4)
+  expect(cells('❤\uFE0F')).toBe(2)
+  expect(cells('e\u0301')).toBe(1)
+})
+
+test('theme 7 docked: the result column starts at the same cell whatever the title holds', async ($, on) => {
+  await setup($, on)
+  await step($, 'x', { title: '빌드 → 배포 — 확인 ✓ 끝', status: 'done' })
+  await step($, 'y', { title: 'abc', status: 'done' })
+  const ui = await mountPinned($)
+  const start = async (key: string) => {
+    const row = textOf(await ui.find({ type: 'Button', key }))
+
+    return [cells(row.slice(0, row.indexOf('성공'))), cells(row)]
+  }
+  expect(await start('x')).toEqual(await start('y'))
+  expect((await start('x'))[1]).toBe(60)
+  await ui.unmount()
+})
+
+test('whitespace in a title, a newline too, is one space: one row, no line break in the Button', async ($, on) => {
+  await setup($, on)
+  await step($, 'n', { title: 'a\nb', status: 'done' })
+  await step($, 'm', { title: 'a \n\t b', status: 'blocked', cause: '이유', notDone: ['하나'] })
+  for (const id of [1, 2, 3, 4, 5, 7]) {
+    await cmd($, 'flow-theme', String(id))
+    const ui = await mountPinned($, { scroll: { offset: 0, bodyRows: 40 } })
+    for (const key of ['n', 'm']) {
+      const text = textOf(await ui.find({ type: 'Button', key }))
+      expect(text.includes('\n'), `theme ${id} ${key}`).toBe(false)
+      expect(text, `theme ${id} ${key}`).toContain('a b')
+    }
+    await ui.unmount()
+  }
+})
+
+test('docked: a choice made while the list follows its end leaves it following, so a new step shows', async ($, on) => {
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text }))
+  await setup($, on)
+  await step($, 'q1', DECISION)
+  await many($, 30)
+  await step($, 'q2', { ...DECISION, title: '두 번째 결정' })
+  const ui = await mountPinned($)
+  await ui.press({ key: 'q2' })
+  await ui.press({ key: 'decide-A' })
+  // q1 is still open, far up: the list is not moved to it
+  expect((await markers(ui)).down).toBeUndefined()
+  await step($, 'zz', { title: '새 단계', status: 'done' })
+  expect(await ui.find({ type: 'Button', key: 'zz' })).toBeDefined()
+  expect((await markers(ui)).down).toBeUndefined()
+  await ui.unmount()
+})
+
+test('docked: the focusable rows just outside the window are in the tree, no others', async ($, on) => {
+  await setup($, on)
+  await many($, 40)
+  const ui = await mountPinned($)
+  await scrollBy($, -1000)
+  await scrollBy($, 10)
+  const win = (await ui.findAll({}))[0].children.find((k: any) => k.props?.overflow === 'hidden' && k.props?.height !== 20)
+  const keysOf = (el: any) => [...JSON.stringify(el).matchAll(/"key":"d(\d+)"/g)].map(m => Number(m[1]))
+  const inside = keysOf(noStops(win))
+  const all = keysOf(win)
+  expect(inside.length).toBeGreaterThan(3)
+  expect(all).toEqual([(inside[0] as number) - 1, ...inside, (inside[inside.length - 1] as number) + 1])
+  await ui.unmount()
+})
+
+// The detail view's width is the pane's bodyColumns (60 in PANE).
+const DETAIL_COLS = 60
+
+test('open choice detail: each option is one Button holding its name and note, every line filled to the width', async ($, on) => {
+  await setup($, on)
+  await step($, 'q1', DECISION)
+  const ui = await mount($)
+  await ui.press({ key: 'q1' })
+  for (const [key, name, note] of [
+    ['decide-A', '블루그린', '무중단, 비용 두 배'],
+    ['decide-B', '롤링', '짧은 끊김, 저렴'],
+  ]) {
+    const button = await ui.find({ type: 'Button', key })
+    const lines = rowLines(button)
+    expect(lines).toHaveLength(2)
+    expect(lines[0], key).toContain(name)
+    expect(lines[1], key).toContain(note)
+    for (const line of lines) expect(cells(line), key).toBe(DETAIL_COLS)
+  }
+  expect(rowLines(await ui.find({ type: 'Button', key: 'decide-A' }))[0]).toMatch(/^A\s+블루그린/)
+  await ui.unmount()
+})
+
+test('open choice detail: no decide button row, the steps-after line stays', async ($, on) => {
+  await setup($, on)
+  await step($, 'q1', DECISION)
+  const ui = await mount($)
+  await ui.press({ key: 'q1' })
+  expect(await ui.find({ type: 'Button', text: /로 결정|로 진행/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /로 결정|로 진행/ })).toBeUndefined()
+  await step($, 'a', { title: '설치', status: 'done' })
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'q1' })
+  expect(await ui.find({ type: 'Text', text: '이 단계 뒤에 단계 1개가 진행됐습니다' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('pressing option B in the detail view sends the prompt and returns to the list', async ($, on) => {
+  const sent: string[] = []
+  on('prompt.submit', (_: any, e: any) => {
+    sent.push(e.text)
+
+    return { text: e.text }
+  })
+  await setup($, on)
+  await step($, 'q1', DECISION)
+  const ui = await mount($)
+  await ui.press({ key: 'q1' })
+  await ui.press({ key: 'decide-B' })
+  expect(sent).toHaveLength(1)
+  expect(sent[0]).toContain('→ B (롤링: 짧은 끊김, 저렴)')
+  expect(await ui.find({ type: 'Button', key: 'back' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'q1' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a decided decision and a chosen failure show plain option rows with the ✓, no option Button', async ($, on) => {
+  on('prompt.submit', (_: any, e: any) => ({ text: e.text }))
+  on('ui.toast', () => ({ value: undefined }))
+  await setup($, on)
+  await step($, 'q1', DECISION)
+  await deferred($, 'f1', { options: FAIL_OPTS })
+  await blocked($, 'b1', { options: FAIL_OPTS })
+  const ui = await mount($)
+  for (const key of ['q1', 'f1', 'b1']) {
+    await ui.press({ key })
+    await ui.press({ key: 'decide-A' })
+    await ui.press({ key })
+    expect(await ui.find({ type: 'Button', key: 'decide-A' }), key).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'decide-B' }), key).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /^✓ / }), key).toBeDefined()
+    await ui.press({ key: 'back' })
+  }
+  await ui.unmount()
+})
+
+test('an open blocked step with options is the same: option Buttons filled to the width, no decide button row', async ($, on) => {
+  await setup($, on)
+  await blocked($, 'b1', { options: FAIL_OPTS })
+  const ui = await mount($)
+  await ui.press({ key: 'b1' })
+  for (const [key, name, note] of [
+    ['decide-A', '건너뜀', '없이 진행'],
+    ['decide-B', '재시도', '권한 받고'],
+  ]) {
+    const lines = rowLines(await ui.find({ type: 'Button', key }))
+    expect(lines[0]).toContain(name)
+    expect(lines[1]).toContain(note)
+    for (const line of lines) expect(cells(line), key).toBe(DETAIL_COLS)
+  }
+  expect(await ui.find({ type: 'Text', text: /로 결정|로 진행/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', text: /로 결정|로 진행/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a long option name and note (Korean, with newlines) wrap into as many rows as lines', async ($, on) => {
+  await setup($, on)
+  const option = '가나다라 마바사아 자차카타 파하가나 다라마바 사아자차\n카타파하 가나다라 마바사아'
+  const note = '무중단 배포를 위해 서버를 두 벌 띄우고 \n 트래픽을 한 번에 넘기므로 비용이 두 배가 듭니다 그래도 되돌리기는 쉽습니다'
+  await step($, 'q1', { ...DECISION, options: [{ option, note }, DECISION.options[1]] })
+  const ui = await mount($)
+  await ui.press({ key: 'q1' })
+  const lines = rowLines(await ui.find({ type: 'Button', key: 'decide-A' }))
+  // the label column is as wide as the widest label plus two
+  const lw = (lines[0] ?? '').indexOf('가')
+  const expected = [
+    ...wrapLines(option.replace(/\s+/g, ' '), DETAIL_COLS - lw),
+    ...wrapLines(note.replace(/\s+/g, ' '), DETAIL_COLS - lw),
+  ]
+  expect(expected.length).toBeGreaterThan(2)
+  expect(lines).toHaveLength(expected.length)
+  for (const line of lines) expect(cells(line)).toBe(DETAIL_COLS)
+  expect(lines.map(l => l.trim()).join(' ').replace(/^A\s+/, '').replace(/\s+/g, ' ')).toBe(
+    expected.join(' ').replace(/\s+/g, ' '),
+  )
+  await ui.unmount()
+})
+
+// The open choice's Unit, built straight from detail() so its rows can be read.
+const el = (type: string) => (props: any) => ({ type, props, children: [props.children].flat(9).filter(x => x !== undefined && x !== false) })
+const optionUnits = (_$: any, width: number, options: { option: string; note: string }[]) => {
+  const ctx = {
+    ui: { Box: el('Box'), Text: el('Text'), Button: el('Button') },
+    list: [],
+    all: [],
+    width,
+    t: tr('ko'),
+    select: () => {},
+    decide: () => {},
+    pinned: false,
+  }
+  const n = norm({ id: 'q1', at: '10:00', ts: 1, title: '배포 방식', status: 'decision', cause: '원인', options, interim: '작업' } as any)
+
+  return detail(ctx as any, n, '').filter(u => u.focus?.some(k => k.startsWith('decide-')))
+}
+
+test('open choice option Units have as many rows as lines (long Korean name and note, newlines)', async ($, on) => {
+  await setup($, on)
+  const option = '가나다라 마바사아 자차카타 파하가나 다라마바 사아자차\n카타파하 가나다라 마바사아'
+  const note = '무중단 배포를 위해 서버를 두 벌 띄우고 \n 트래픽을 한 번에 넘기므로 비용이 두 배가 듭니다 그래도 되돌리기는 쉽습니다'
+  const units = optionUnits($, DETAIL_COLS, [{ option, note }, { option: '롤링', note: '저렴' }])
+  expect(units.map(u => u.focus)).toEqual([['decide-A'], ['decide-B']])
+  const lw = 8
+  const lines = [
+    ...wrapLines(option.replace(/\s+/g, ' '), DETAIL_COLS - lw),
+    ...wrapLines(note.replace(/\s+/g, ' '), DETAIL_COLS - lw),
+  ]
+  expect(lines.length).toBeGreaterThan(2)
+  expect(units[0]?.rows).toBe(lines.length)
+  expect(units[1]?.rows).toBe(2)
+})
+
+test('open choice lines never pass the width, even narrower than the label column', async ($, on) => {
+  await setup($, on)
+  for (const width of [9, 6, 4]) {
+    const units = optionUnits($, width, [{ option: '가나', note: '다라마' }, { option: 'ab', note: 'cd' }])
+    for (const u of units) {
+      const lines = textOf(u.el).split('\n')
+      expect(lines, String(width)).toHaveLength(u.rows)
+      for (const line of lines) expect(cells(line), String(width)).toBeLessThanOrEqual(width)
+    }
+  }
+})
+
+test('wrapLines counts a character with a variation selector as cells() does', () => {
+  for (const s of ['a'.repeat(56) + '✈️b', 'a'.repeat(56) + '✈️']) {
+    for (const line of wrapLines(s, 57)) expect(cells(line)).toBeLessThanOrEqual(57)
+  }
+})
+
+test('open choice: a very long note is cut with … so the drawn text stays under the engine limit', async ($, on) => {
+  await setup($, on)
+  const units = optionUnits($, 28, [{ option: '가나다라마 '.repeat(2000), note: '가나다라마 '.repeat(2000) }, { option: '롤링', note: '저렴' }])
+  const drawn = units.reduce((sum, u) => sum + textOf(u.el).length, 0)
+  expect(drawn).toBeLessThan(100000)
+  const first = textOf(units[0]?.el).split('\n')
+  expect(first.at(-1)?.trim().endsWith('…')).toBe(true)
+  expect(units[0]?.rows).toBe(first.length)
+})
+
+test('docked: a long option taller than the window opens at its own first line', async ($, on) => {
+  await setup($, on)
+  const word = '가나다라마바사아'
+  await step($, 'q1', {
+    ...DECISION,
+    options: [
+      { option: Array(5).fill(word).join(' '), note: Array(6).fill(word).join(' ') },
+      { option: '롤링', note: '저렴' },
+    ],
+  })
+  const ui = await mountPinned($, { bodyColumns: 30, scroll: { offset: 0, bodyRows: 14 } })
+  await ui.press({ key: 'q1' })
+  // the window starts on option A: its first unit holds the Button
+  expect((await windowUnits(ui))[0]).toContain('decide-A')
+  await ui.unmount()
+})
+
+test('an open choice cut at its budget never splits an emoji', async ($, on) => {
+  await setup($, on)
+  await step($, 'e', { ...DECISION, options: [{ option: '🚀 출시', note: '🚀'.repeat(14000) }, { option: 'B', note: 'b' }] })
+  const ui = await mount($)
+  await ui.press({ key: 'e' })
+  const text = textOf(await ui.find({ type: 'Button', key: 'decide-A' }))
+  expect(text).toContain('…')
+  expect(text).toContain('🚀')
+  expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)).toBe(false)
+  // a lone surrogate reaches the tree as U+FFFD
+  expect(text.includes('\uFFFD')).toBe(false)
   await ui.unmount()
 })

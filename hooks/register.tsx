@@ -143,10 +143,12 @@ const deferredCount = (list: StepNode[]) => list.filter(n => n.status === 'defer
 const summaryText = (list: StepNode[], t: Strings) =>
   `${t.steps(list.length)}, ${t.toDecide(pendingCount(list))}, ${t.blockedN(blockedCount(list))}, ${t.deferredN(deferredCount(list))}`
 
-// Rough serialized size of a node in the list views (texts cut as they are drawn).
-const weight = (n: StepNode) =>
-  700 +
+// Rough serialized size of a node in the list views (texts cut as they are drawn). The title lines are padded
+// with spaces to the pane width, about two characters per column in the tree.
+const weight = (n: StepNode, cols: number) =>
+  800 +
   n.title.length +
+  2 * cols * wrapRows(n.title, cols - 12) +
   (n.status === 'done' || n.status === 'decision'
     ? 0
     : [n.cause, n.fix, n.okReason, ...(n.notDone ?? []), ...(n.attempts ?? []).flatMap(a => [a.action, a.reason])].reduce<number>(
@@ -156,15 +158,15 @@ const weight = (n: StepNode) =>
 
 // Nodes the list views draw, under the tree limit: oldest done nodes go first, then the oldest of
 // the rest; the newest node, open choices and unresolved failures (their ids serve `resolve`) always stay.
-const visible = (list: StepNode[]) => {
-  let total = list.reduce((w, n) => w + weight(n), 0)
+const visible = (list: StepNode[], cols: number) => {
+  let total = list.reduce((w, n) => w + weight(n, cols), 0)
   const newest = list[list.length - 1]
   const skip = new Set<string>()
   for (const n of [...list.filter(x => x.status === 'done'), ...list.filter(x => x.status !== 'done')]) {
     if (total <= TREE_BUDGET) break
     if (n === newest || isKept(n)) continue
     skip.add(n.id)
-    total -= weight(n)
+    total -= weight(n, cols)
   }
 
   return { shown: list.filter(n => !skip.has(n.id)), hidden: skip.size }
@@ -206,7 +208,7 @@ const blank = ({ Box }: FullUi): Unit => ({ rows: 1, el: <Box height={1} /> })
 const viewUnits = (v: View): Unit[] => {
   const { ui, t, list, cols } = v
   const { Box, Text, Button } = ui
-  const { shown, hidden } = visible(list)
+  const { shown, hidden } = visible(list, cols)
   const ctx: Ctx = { ui, list: shown, all: list, width: cols, t, select: v.select, decide: v.decide, pinned: v.rows > 0 }
   const node = selectedNode(v)
   if (node) {
@@ -372,6 +374,70 @@ const windowStart = (w: ViewWindow, l: ReturnType<typeof layoutOf>) => {
   if (w.follow) return l.end
 
   return l.snapUp(Math.min(Math.max(w.offset, 0), l.max))
+}
+
+// The view as read from state, for hooks that only need its layout (the callbacks do nothing).
+const viewOf = async ($: any, d: typeof dock): Promise<View> => {
+  const selectedId = await read($, selected)
+  const list = (await read($, nodes)).map(norm)
+
+  return {
+    ui: $.ui.resolve({ surface: 'terminal', component: 'Pane' }),
+    t: tr(await localeOf($)),
+    list,
+    themeId: asTheme(await read($, theme)),
+    selectedId,
+    btwList: await read($, btw),
+    pickerOpen: await read($, themePicker),
+    bg: await read($, rowBg),
+    cols: d.cols,
+    rows: d.rows,
+    select: () => {},
+    decide: () => {},
+    back: () => {},
+    close: () => {},
+  }
+}
+
+// Docked: moves the window so the row holding `key` shows with its neighbouring focusable rows, or alone when
+// they do not all fit. 'shown' when they already did, 'moved' when the window moved, false when the pane is not
+// docked or has no such row.
+const reveal = async ($: any, key: string) => {
+  const d = dock
+  if (d.rows <= 0) return false
+  const v = await viewOf($, d)
+  const l = layoutOf(v)
+  const at = l.units.findIndex(u => u.focus?.includes(key))
+  if (at < 0) return false
+  const stops = l.units.flatMap((u, i) => (u.focus ? [i] : []))
+  const k = stops.indexOf(at)
+  const end = (i: number) => (l.starts[i] ?? 0) + (l.units[i]?.rows ?? 0)
+  let top = l.starts[stops[k - 1] ?? at] ?? 0
+  let bottom = end(stops[k + 1] ?? at)
+  if (bottom - top > l.regionRows) {
+    top = l.starts[at] ?? 0
+    bottom = end(at)
+  }
+  const detailOpen = v.list.some(n => n.id === v.selectedId)
+  const from = windowStart(detailOpen ? await read($, detailView) : await read($, listView), l)
+  if (top >= from && bottom <= from + l.regionRows) return 'shown'
+  // A row taller than the window stops at its own start, not at the next row's.
+  const offset = Math.min(Math.max(top < from ? l.snapDown(top) : Math.min(l.snapUp(bottom - l.regionRows), top), 0), l.end)
+  const moved = { offset, follow: offset >= l.end }
+  if (detailOpen) await update($, detailView, () => moved)
+  else await update($, listView, () => moved)
+
+  return 'moved'
+}
+
+// The engine keeps the focus ring by position among the drawn buttons, so after the window moved the ring is put back
+// on its key once the redraw is done. Any other focus move in between cancels it (a held key is not pulled back).
+let focusSeq = 0
+const focusSoon = ($: any, key: string) => {
+  const seq = ++focusSeq
+  $.clock.after(80, () => {
+    if (seq === focusSeq) void $.ui.focus({ requestId: PANE, key }).catch(() => {})
+  })
 }
 
 // The language, resolved on first use (session.start refreshes it) so a session where that hook did not run
@@ -798,26 +864,9 @@ export const register: Register = on => {
   on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     const d = dock
     if (d.rows <= 0) return next(e)
-    const selectedId = await read($, selected)
-    const list = (await read($, nodes)).map(norm)
-    const v: View = {
-      ui: $.ui.resolve({ surface: 'terminal', component: 'Pane' }),
-      t: tr(await localeOf($)),
-      list,
-      themeId: asTheme(await read($, theme)),
-      selectedId,
-      btwList: await read($, btw),
-      pickerOpen: await read($, themePicker),
-      bg: await read($, rowBg),
-      cols: d.cols,
-      rows: d.rows,
-      select: () => {},
-      decide: () => {},
-      back: () => {},
-      close: () => {},
-    }
+    const v = await viewOf($, d)
     const l = layoutOf(v)
-    const detailOpen = list.some(n => n.id === selectedId)
+    const detailOpen = v.list.some(n => n.id === v.selectedId)
     const from = windowStart(detailOpen ? await read($, detailView) : await read($, listView), l)
     const target = from + e.by
     const offset = Math.min(e.by > 0 ? l.snapUp(target) : l.snapDown(Math.max(0, target)), l.end)
@@ -826,6 +875,16 @@ export const register: Register = on => {
     else await update($, listView, () => moved)
 
     return {}
+  })
+
+  // Keyboard focus on a row at the window's edge: bring its neighbours into view. Never refuses the move (a click
+  // is not told from Tab here, and refusing would block clicks on the input).
+  on('ui.focus', { requestId: PANE }, async ($, e, next) => {
+    focusSeq++
+    const r = await next(e)
+    if (!r.deny && e.element && (await reveal($, e.element).catch(() => false)) === 'moved') focusSoon($, e.element)
+
+    return r
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -845,9 +904,14 @@ export const register: Register = on => {
     const size = { cols: bodyColumns, rows: pinned ? scroll.bodyRows : 0 }
     dock = size
     // Opening a step starts its window at the top; going back finds the list's window as it was.
+    // An open choice gets its first button into the window; the keyboard starts on back, not on a choice.
     const select = async (id: string) => {
       if (id) await update($, detailView, () => ({ offset: 0, follow: false }))
       await update($, selected, () => id)
+      if (!id) return
+      const open = (await read($, nodes)).map(norm).find(x => x.id === id)
+      if (open && isOpen(open)) await reveal($, 'decide-A')
+      focusSoon($, 'back')
     }
     // Pane choice: mark it and send it to the model as the user's words, without waiting for the turn
     // (submit resolves once the session is idle); undo when it is refused. Works on a pending decision and on
@@ -870,6 +934,12 @@ export const register: Register = on => {
       const mark = (pick: StepNode['decided']) =>
         update($, nodes, l => l.map(x => (x.id === cur.id ? { ...x, [key]: pick } : x)))
       await mark({ choice: i, ts })
+      // Back to the list, then the keyboard goes to the first choice still open.
+      await select('')
+      const next = (await read($, nodes)).map(norm).find(isOpen)
+      if (next) {
+        focusSoon($, next.id)
+      }
       const release = () => update($, deciding, l => l.filter(x => x !== cur.id))
       const revert = async () => {
         await update($, nodes, l =>
@@ -892,6 +962,9 @@ export const register: Register = on => {
     const back = async () => {
       await select('')
       if (!pinned) await $.ui.scroll({ in: PANE, to: { key: node?.id ?? '' } }).catch(() => {})
+      else if (node) {
+        focusSoon($, node.id)
+      }
     }
     // Closing hides the exchange everywhere and no older one takes its place; a late answer stays hidden too.
     const close = () => update($, btw, l => l.map(x => ({ ...x, closed: true as const })))
@@ -1012,6 +1085,9 @@ export const register: Register = on => {
       const offset = windowStart(node ? await read($, detailView) : await read($, listView), l)
       const first = Math.max(0, l.starts.indexOf(offset))
       const shown = l.units.filter((_, i) => i >= first && (l.starts[i] ?? 0) < offset + l.regionRows)
+      const lastShown = first + shown.length - 1
+      const afterStop = l.units.find((u, i) => i > lastShown && u.focus)
+      const beforeStop = l.units.findLast((u, i) => i < first && u.focus)
       const below = l.total - offset - l.regionRows
       // The ✕ sits at the right end of the question row (a cell of margin, the button, a cell of margin): a
       // marker on that row moves left of it, one cell between them.
@@ -1027,8 +1103,15 @@ export const register: Register = on => {
             </Box>
           )}
           <Box width={bodyColumns} height={l.regionRows} flexShrink={1} overflow="hidden">
+            {/* The focusable rows just outside the window are drawn, cut off: Tab and the arrows must reach them for ui.focus to move the window. */}
+            {beforeStop && (
+              <Box key="focus-before" position="absolute" top={-beforeStop.rows} left={0} width={bodyColumns}>
+                {beforeStop.el}
+              </Box>
+            )}
             <Box flexDirection="column" width={bodyColumns} flexShrink={0}>
               {shown.map(u => <Box flexShrink={0}>{u.el}</Box>)}
+              {afterStop && <Box key="focus-after" flexShrink={0}>{afterStop.el}</Box>}
             </Box>
             {offset > 0 && (
               <Box position="absolute" top={0} right={upRight}><Text dimColor>{`↑ ${offset}`}</Text></Box>

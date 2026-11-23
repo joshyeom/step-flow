@@ -24,8 +24,6 @@ export type Strings = {
   decided: string
   issue: string
   meanwhile: string
-  decideButton: (letter: string) => string
-  goButton: (letter: string) => string
   stepsAfter: (k: number) => string
   decisionRow: string
   // text the pane submits as the user's choice (also read by the model)
@@ -91,8 +89,6 @@ const ko: Strings = {
   decided: '결정됨',
   issue: '쟁점',
   meanwhile: '그동안',
-  decideButton: l => `${l}로 결정`,
-  goButton: l => `${l}로 진행`,
   stepsAfter: k => `이 단계 뒤에 단계 ${k}개가 진행됐습니다`,
   decisionRow: '결정',
   decisionPrompt: (title, l, option, note, issue, id, at, k) =>
@@ -151,8 +147,6 @@ const en: Strings = {
   decided: 'Decided',
   issue: 'Issue',
   meanwhile: 'Meanwhile',
-  decideButton: l => `Choose ${l}`,
-  goButton: l => `Go with ${l}`,
   stepsAfter: k => `${k} steps were recorded after this one`,
   decisionRow: 'Decision',
   decisionPrompt: (title, l, option, note, issue, id, at, k) =>

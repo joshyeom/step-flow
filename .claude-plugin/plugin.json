@@ -1,1 +1,1 @@
-{ "name": "step-flow", "version": "0.4.0", "description": "Side pane that records each finished step of a long run, the decisions waiting for you, and what is blocked", "types": "./types/index.d.ts" }
+{ "name": "step-flow", "version": "0.5.0", "description": "Side pane that records each finished step of a long run, the decisions waiting for you, and what is blocked", "types": "./types/index.d.ts" }
